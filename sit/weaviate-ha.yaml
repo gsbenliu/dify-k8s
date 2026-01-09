@@ -211,10 +211,10 @@ spec:
           resources:
             requests:
               cpu: "1"
-              memory: "4Gi"
+              memory: "1Gi"
             limits:
               cpu: "4"
-              memory: "16Gi"
+              memory: "2Gi"
 
   volumeClaimTemplates:
     - metadata:

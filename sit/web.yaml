@@ -19,49 +19,42 @@ spec:
       automountServiceAccountToken: false
       restartPolicy: Always
       containers:
-      - name: web
-        image: langgenius/dify-web:1.7.2
-        envFrom:
-          - configMapRef:
-              name: dify-config
-        env:
-        - name: SENTRY_DSN
-          valueFrom:
-            configMapKeyRef:
-              name: dify-config
-              key: WEB_SENTRY_DSN
-        ports:
-        - containerPort: 3000
-        startupProbe:
-          exec:
-            command:
-              - sh
-              - -c
-              - "ps aux | grep -E '[c]elery.*worker' >/dev/null"
-          periodSeconds: 5
-          timeoutSeconds: 2
-          failureThreshold: 60
+        - name: web
+          image: langgenius/dify-web:1.7.2
+          envFrom:
+            - configMapRef:
+                name: dify-config
+          env:
+            - name: SENTRY_DSN
+              valueFrom:
+                configMapKeyRef:
+                  name: dify-config
+                  key: WEB_SENTRY_DSN
+          ports:
+            - containerPort: 3000
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 60   # 最长约 5 分钟
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
+          imagePullPolicy: IfNotPresent
 
-        livenessProbe:
-          exec:
-            command:
-              - sh
-              - -c
-              - "ps aux | grep -E '[c]elery.*worker' >/dev/null"
-          periodSeconds: 20
-          timeoutSeconds: 2
-          failureThreshold: 3
-
-        readinessProbe:
-          exec:
-            command:
-              - sh
-              - -c
-              - "celery inspect ping | grep -q OK"
-          periodSeconds: 30
-          timeoutSeconds: 5
-          failureThreshold: 3
-        imagePullPolicy: IfNotPresent
 
 ---
 apiVersion: v1
@@ -71,10 +64,10 @@ metadata:
   namespace: dify
 spec:
   ports:
-  - port: 3000
-    targetPort: 3000
-    protocol: TCP
-    name: web
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: web
   type: ClusterIP
   selector:
     app: web

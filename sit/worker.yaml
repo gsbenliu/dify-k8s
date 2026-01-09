@@ -27,24 +27,32 @@ spec:
               protocol: TCP
           startupProbe:
             exec:
-              command: [ "sh", "-c", "pgrep -f 'celery.*worker' >/dev/null" ]
+              command:
+                - sh
+                - -c
+                - "ps aux | grep -E '[c]elery.*worker' >/dev/null"
             periodSeconds: 5
             timeoutSeconds: 2
             failureThreshold: 60
+
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "ps aux | grep -E '[c]elery.*worker' >/dev/null"
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
+
           readinessProbe:
             exec:
               command:
                 - sh
                 - -c
-                - "celery inspect ping -d celery@$(hostname) | grep -q OK"
+                - "celery inspect ping | grep -q OK"
             periodSeconds: 30
             timeoutSeconds: 5
-            failureThreshold: 3
-          livenessProbe:
-            exec:
-              command: [ "sh", "-c", "pgrep -f 'celery.*worker' >/dev/null" ]
-            periodSeconds: 20
-            timeoutSeconds: 2
             failureThreshold: 3
           envFrom:
             - configMapRef:
