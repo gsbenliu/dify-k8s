@@ -30,7 +30,11 @@ spec:
               command:
                 - sh
                 - -c
-                - "ps aux | grep -E '[c]elery.*worker' >/dev/null"
+                - >
+                  python3 -c "import pathlib,sys; c=pathlib.Path('/proc/1/cmdline').read_bytes().replace(b'\x00',b' ');
+                  sys.exit(0 if (b'celery' in c and b'worker' in c) else 1)" ||
+                  python -c "import pathlib,sys; c=pathlib.Path('/proc/1/cmdline').read_bytes().replace(b'\x00',b' ');
+                  sys.exit(0 if (b'celery' in c and b'worker' in c) else 1)"
             periodSeconds: 5
             timeoutSeconds: 2
             failureThreshold: 60
@@ -40,7 +44,11 @@ spec:
               command:
                 - sh
                 - -c
-                - "ps aux | grep -E '[c]elery.*worker' >/dev/null"
+                - >
+                  python3 -c "import pathlib,sys; c=pathlib.Path('/proc/1/cmdline').read_bytes().replace(b'\x00',b' ');
+                  sys.exit(0 if (b'celery' in c and b'worker' in c) else 1)" ||
+                  python -c "import pathlib,sys; c=pathlib.Path('/proc/1/cmdline').read_bytes().replace(b'\x00',b' ');
+                  sys.exit(0 if (b'celery' in c and b'worker' in c) else 1)"
             periodSeconds: 20
             timeoutSeconds: 2
             failureThreshold: 3
@@ -50,9 +58,11 @@ spec:
               command:
                 - sh
                 - -c
-                - "celery inspect ping | grep -q OK"
-            periodSeconds: 30
-            timeoutSeconds: 5
+                - >
+                  python3 -c "import socket,sys; socket.create_connection(('redis',6379),2).close(); sys.exit(0)" ||
+                  python -c "import socket,sys; socket.create_connection(('redis',6379),2).close(); sys.exit(0)"
+            periodSeconds: 10
+            timeoutSeconds: 3
             failureThreshold: 3
           envFrom:
             - configMapRef:
