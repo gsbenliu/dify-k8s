@@ -33,28 +33,35 @@ spec:
         ports:
         - containerPort: 3000
         startupProbe:
-          httpGet:
-            path: /
-            port: 3000
+          exec:
+            command:
+              - sh
+              - -c
+              - "ps aux | grep -E '[c]elery.*worker' >/dev/null"
           periodSeconds: 5
           timeoutSeconds: 2
-          failureThreshold: 60   # 最长约 5 分钟
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 3000
-          periodSeconds: 10
-          timeoutSeconds: 2
-          failureThreshold: 3
+          failureThreshold: 60
+
         livenessProbe:
-          httpGet:
-            path: /
-            port: 3000
+          exec:
+            command:
+              - sh
+              - -c
+              - "ps aux | grep -E '[c]elery.*worker' >/dev/null"
           periodSeconds: 20
           timeoutSeconds: 2
           failureThreshold: 3
-        imagePullPolicy: IfNotPresent
 
+        readinessProbe:
+          exec:
+            command:
+              - sh
+              - -c
+              - "celery inspect ping | grep -q OK"
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        imagePullPolicy: IfNotPresent
 
 ---
 apiVersion: v1

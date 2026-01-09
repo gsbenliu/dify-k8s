@@ -21,19 +21,30 @@ spec:
           image: langgenius/dify-api:1.7.2
           startupProbe:
             exec:
-              command: [ "sh", "-c", "pgrep -f 'celery.*beat' >/dev/null" ]
+              command:
+                - sh
+                - -c
+                - "ps aux | grep -E '[c]elery.*beat' >/dev/null"
             periodSeconds: 5
             timeoutSeconds: 2
             failureThreshold: 60
+
           readinessProbe:
             exec:
-              command: [ "sh", "-c", "pgrep -f 'celery.*beat' >/dev/null" ]
+              command:
+                - sh
+                - -c
+                - "ps aux | grep -E '[c]elery.*beat' >/dev/null"
             periodSeconds: 10
             timeoutSeconds: 2
             failureThreshold: 3
+
           livenessProbe:
             exec:
-              command: [ "sh", "-c", "pgrep -f 'celery.*beat' >/dev/null" ]
+              command:
+                - sh
+                - -c
+                - "ps aux | grep -E '[c]elery.*beat' >/dev/null"
             periodSeconds: 20
             timeoutSeconds: 2
             failureThreshold: 3
