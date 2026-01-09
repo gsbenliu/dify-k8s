@@ -124,16 +124,24 @@ spec:
       # 强制 3 个 Pod 分散到不同节点（HA 必备）
       affinity:
         podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: weaviate
-              topologyKey: kubernetes.io/hostname
+#          requiredDuringSchedulingIgnoredDuringExecution:
+#            - labelSelector:
+#                matchLabels:
+#                  app: weaviate
+#              topologyKey: kubernetes.io/hostname
+#         非生产环境可以去除反亲和
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: weaviate
+                topologyKey: kubernetes.io/hostname
 
       containers:
         - name: weaviate
           # 生产请固定版本，不要 latest
-          image: cr.weaviate.io/semitechnologies/weaviate:1.35.2
+          image: docker.m.daocloud.io/semitechnologies/weaviate:1.35.2
           imagePullPolicy: IfNotPresent
 
           # 用 shell 做“仅非 0 号节点设置 CLUSTER_JOIN”，避免 founding node 自己 join 自己
