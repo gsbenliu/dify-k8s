@@ -1,35 +1,57 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: api
-  labels:
-    app.kubernetes.io/instance: api
-    app: api
+  name: worker
   namespace: dify
+  labels:
+    app: worker
+    app.kubernetes.io/instance: worker
 spec:
+  serviceName: worker
   replicas: 1
-  revisionHistoryLimit: 1
-  minReadySeconds: 10
-  serviceName: api
   selector:
     matchLabels:
-      app: api
+      app: worker
   template:
     metadata:
       labels:
-        app: api
+        app: worker
     spec:
       nodeSelector:
         kubernetes.io/os: linux
       containers:
-        - name: api
+        - name: worker
           image: langgenius/dify-api:1.7.2
+          ports:
+            - containerPort: 5001
+              protocol: TCP
+          startupProbe:
+            exec:
+              command: [ "sh", "-c", "pgrep -f 'celery.*worker' >/dev/null" ]
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "celery inspect ping -d celery@$(hostname) | grep -q OK"
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: [ "sh", "-c", "pgrep -f 'celery.*worker' >/dev/null" ]
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
           envFrom:
             - configMapRef:
                 name: dify-config
           env:
             - name: MODE
-              value: "api"
+              value: "worker"
             - name: SENTRY_DSN
               valueFrom:
                 configMapKeyRef:
@@ -45,66 +67,33 @@ spec:
                 configMapKeyRef:
                   name: dify-config
                   key: API_SENTRY_PROFILES_SAMPLE_RATE
-            - name: PLUGIN_REMOTE_INSTALL_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: dify-config
-                  key: EXPOSE_PLUGIN_DEBUGGING_HOST
-            - name: PLUGIN_REMOTE_INSTALL_PORT
-              valueFrom:
-                configMapKeyRef:
-                  name: dify-config
-                  key: EXPOSE_PLUGIN_DEBUGGING_PORT
-            - name: PLUGIN_MAX_PACKAGE_SIZE
-              valueFrom:
-                configMapKeyRef:
-                  name: dify-config
-                  key: PLUGIN_MAX_PACKAGE_SIZE
             - name: INNER_API_KEY_FOR_PLUGIN
               valueFrom:
                 configMapKeyRef:
                   name: dify-config
                   key: PLUGIN_DIFY_INNER_API_KEY
-          ports:
-            - containerPort: 5001
-          imagePullPolicy: IfNotPresent
+
           volumeMounts:
             - mountPath: /app/api/storage
-              name: api-storage
+              name: worker-storage
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Always
       volumes:
-        - name: api-storage
+        - name: worker-storage
           persistentVolumeClaim:
             claimName: api-pvc
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: api-pvc
-  namespace: dify
-#single server
-spec:
-  accessModes:
-    - ReadWriteOnce
-# prd deployment
-#spec:
-#  accessModes:
-#    - ReadWriteMany
-#  storageClassName: <你的RWX StorageClass>
-  resources:
-    requests:
-      storage: 5Gi
+
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: api
+  name: worker
   namespace: dify
 spec:
   ports:
-  - port: 5001
+  - protocol: TCP
+    port: 5001
     targetPort: 5001
-    protocol: TCP
-    name: api
-  type: ClusterIP
   selector:
-    app: api
+    app: worker
+  type: ClusterIP

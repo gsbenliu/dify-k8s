@@ -67,6 +67,27 @@ spec:
                   key: PLUGIN_DIFY_INNER_API_KEY
           ports:
             - containerPort: 5001
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 5001
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 60   # 最长约 5 分钟启动窗口（5s*60）
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5001
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5001
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
           imagePullPolicy: IfNotPresent
           volumeMounts:
             - mountPath: /app/api/storage
@@ -85,11 +106,11 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-# prd deployment
-#spec:
-#  accessModes:
-#    - ReadWriteMany
-#  storageClassName: <你的RWX StorageClass>
+  # prd deployment
+  #spec:
+  #  accessModes:
+  #    - ReadWriteMany
+  #  storageClassName: <你的RWX StorageClass>
   resources:
     requests:
       storage: 5Gi

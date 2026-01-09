@@ -1,0 +1,227 @@
+---
+# ==========
+# 认证 + 授权（生产建议：关闭匿名 + API Key + RBAC）
+# ==========
+apiVersion: v1
+kind: Secret
+metadata:
+  name: weaviate-auth
+  namespace: dify
+type: Opaque
+stringData:
+  # 逗号分隔：允许的 API Key 列表
+  AUTHENTICATION_APIKEY_ALLOWED_KEYS: "27f7897a7a5407bdabc7847de89b78505b0518509bf3eba3db83b065d1f84262,fbb7ca63f7c23710d0d9e589a61361b60a39a58ed8381937bf74724a19d37997"
+  # 逗号分隔：与上面 key 对应的 user_id（也可只写 1 个 user 让所有 key 共用）
+  AUTHENTICATION_APIKEY_USERS: "admin,readonly"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: weaviate-config
+  namespace: dify
+data:
+  # 数据目录（PVC 会挂载到这里）
+  PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+  LOG_LEVEL: "info"
+  QUERY_DEFAULTS_LIMIT: "25"
+
+  # 关闭匿名访问；启用 API Key
+  AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "false"
+  AUTHENTICATION_APIKEY_ENABLED: "true"
+
+  # ===== 授权：RBAC（生产推荐；至少要设一个 root 用户）=====
+  AUTHORIZATION_RBAC_ENABLED: "true"
+  AUTHORIZATION_RBAC_ROOT_USERS: "admin"
+
+  # ===== 集群 + Raft（3 节点）=====
+  CLUSTER_GOSSIP_BIND_PORT: "7100"
+  CLUSTER_DATA_BIND_PORT: "7101"
+
+  # Raft 投票者（3 个）
+  RAFT_JOIN: "weaviate-0,weaviate-1,weaviate-2"
+  RAFT_BOOTSTRAP_EXPECT: "3"
+
+  # ===== 数据复制（HA 核心）=====
+  # 3 节点生产通常设 3（每份数据 3 副本，磁盘成本 x3）
+  # 如果你更在意成本，也可改成 "2"（允许挂 1 节点仍可用）
+  REPLICATION_MINIMUM_FACTOR: "3"
+
+  # （可选）如果你不使用任何向量化/生成模块，建议显式 none，避免误启用
+  DEFAULT_VECTORIZER_MODULE: "none"
+
+  # （可选）备份模块：S3/MinIO 推荐生产（需要则打开并配置下面的 BACKUP_S3_*）
+  # ENABLE_MODULES: "backup-s3"
+  # BACKUP_S3_BUCKET: "weaviate-backups"
+  # BACKUP_S3_PATH: "prod"
+  # BACKUP_S3_ENDPOINT: "minio.minio.svc.cluster.local:9000"
+  # BACKUP_S3_USE_SSL: "false"
+---
+# ==========
+# Headless Service：给 StatefulSet 提供稳定 DNS（weaviate-0/1/2）
+# ==========
+apiVersion: v1
+kind: Service
+metadata:
+  name: weaviate-headless
+  namespace: dify
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: weaviate
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+    - name: gossip
+      port: 7100
+      targetPort: 7100
+    - name: data
+      port: 7101
+      targetPort: 7101
+---
+# ==========
+# PDB：避免维护时一次驱逐多个 Pod（3 节点建议 minAvailable=2）
+# ==========
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: weaviate-pdb
+  namespace: dify
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: weaviate
+---
+# ==========
+# StatefulSet：3 节点 + PVC + Anti-Affinity（生产 HA）
+# ==========
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: weaviate
+  namespace: dify
+spec:
+  serviceName: weaviate-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: weaviate
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: weaviate
+    spec:
+      terminationGracePeriodSeconds: 120
+
+      # 强制 3 个 Pod 分散到不同节点（HA 必备）
+      affinity:
+        podAntiAffinity:
+#          生产环境反亲和配置
+#          requiredDuringSchedulingIgnoredDuringExecution:
+#            - labelSelector:
+#                matchLabels:
+#                  app: weaviate
+#              topologyKey: kubernetes.io/hostname
+#         非生产环境不配置反亲和
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: weaviate
+                topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: weaviate
+          # 生产请固定版本，不要 latest
+          image: docker.m.daocloud.io/semitechnologies/weaviate:1.35.2
+          imagePullPolicy: IfNotPresent
+
+          # 用 shell 做“仅非 0 号节点设置 CLUSTER_JOIN”，避免 founding node 自己 join 自己
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              set -e
+              if [ "$HOSTNAME" != "weaviate-0" ]; then
+                export CLUSTER_JOIN="weaviate-0.weaviate-headless.dify.svc.cluster.local:7100"
+              fi
+              exec /bin/weaviate --host 0.0.0.0 --port 8080 --scheme http
+
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: grpc
+              containerPort: 50051
+            - name: gossip
+              containerPort: 7100
+            - name: data
+              containerPort: 7101
+
+          envFrom:
+            - configMapRef:
+                name: weaviate-config
+            - secretRef:
+                name: weaviate-auth
+
+          env:
+            # 官方建议：hostname 可能变动时要显式设置 CLUSTER_HOSTNAME [oai_citation:1‡Weaviate Documentation](https://docs.weaviate.io/deploy/configuration/env-vars?utm_source=chatgpt.com)
+            - name: CLUSTER_HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+            # 一些环境下显式 advertise 地址更稳（PodIP）
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: CLUSTER_ADVERTISE_ADDR
+              value: "$(POD_IP)"
+
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/weaviate
+
+          # 探针：官方 live/ready 端点 [oai_citation:2‡Weaviate Documentation](https://docs.weaviate.io/deploy/configuration/status?utm_source=chatgpt.com)
+          readinessProbe:
+            httpGet:
+              path: /v1/.well-known/ready
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /v1/.well-known/live
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+
+          resources:
+            requests:
+              cpu: "1"
+              memory: "4Gi"
+            limits:
+              cpu: "4"
+              memory: "16Gi"
+
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: "local-path"  # <-- 改成你自建集群的 StorageClass
+        resources:
+          requests:
+            storage: 3Gi

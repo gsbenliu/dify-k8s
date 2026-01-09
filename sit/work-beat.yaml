@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: work-beat
+  namespace: dify
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: work-beat
+  template:
+    metadata:
+      labels:
+        app: work-beat
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Always
+      containers:
+        - name: work-beat
+          image: langgenius/dify-api:1.7.2
+          startupProbe:
+            exec:
+              command: [ "sh", "-c", "pgrep -f 'celery.*beat' >/dev/null" ]
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: [ "sh", "-c", "pgrep -f 'celery.*beat' >/dev/null" ]
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: [ "sh", "-c", "pgrep -f 'celery.*beat' >/dev/null" ]
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: dify-config
+          env:
+            - name: MODE
+              value: "beat"
+          volumeMounts:
+            - mountPath: /app/api/storage
+              name: api-storage
+      volumes:
+        - name: api-storage
+          persistentVolumeClaim:
+            claimName: api-pvc
